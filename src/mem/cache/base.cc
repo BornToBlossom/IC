@@ -1338,7 +1338,7 @@ BaseCache::allocateBlock(const PacketPtr pkt, PacketList &writebacks)
             if (blk->wasPrefetched()) {
                 unusedPrefetches++;
             }
-
+           mergeBlkHistory(blk);
             evictBlock(blk, writebacks);
         }
     }
