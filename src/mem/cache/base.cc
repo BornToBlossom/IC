@@ -60,11 +60,46 @@
 #include "params/BaseCache.hh"
 #include "params/WriteAllocator.hh"
 #include "sim/core.hh"
+#include "base.hh"
 
 class BaseMasterPort;
 class BaseSlavePort;
 
 using namespace std;
+
+struct BlockHistory{
+    uint64_t total_read=0;
+    uint64_t total_written=0;
+    uint64_t unique_read=0;
+    uint64_t unique_written=0;
+    std::vector<uint64_t> bitmap;
+    Tick last_access=0;
+
+};
+std::unordered_map<Addr,BlockHistory> history_map;
+void BaseCache::mergeBlkHistory(CacheBlk* blk)
+{
+    Addr base = regenerateBlkAddr(blk);
+    auto &h = history_map[base];
+    h.total_read += blk->bytes_read_total;
+    h.total_written += blk->bytes_written_total;
+    h.unique_read += blk->unique_bytes_read;
+    h.unique_written += blk->unique_bytes_written;
+
+    if (!blk->touch_bitmap.empty()) {
+        if (h.bitmap.empty()) {
+            h.bitmap = blk->touch_bitmap;
+        } else {
+            if (h.bitmap.size() < blk->touch_bitmap.size())
+                h.bitmap.resize(blk->touch_bitmap.size(), 0);
+            for (size_t i = 0; i < blk->touch_bitmap.size(); ++i) {
+                h.bitmap[i] |= blk->touch_bitmap[i];
+            }
+        }
+    }
+
+    h.last_access = curTick();
+}
 
 BaseCache::CacheSlavePort::CacheSlavePort(const std::string &_name,
                                           BaseCache *_cache,
@@ -880,8 +915,15 @@ BaseCache::satisfyRequest(PacketPtr pkt, CacheBlk *blk, bool, bool)
         // downstream caches along the path to memory, but always
         // Exclusive, and never Modified
         assert(blk->isWritable());
-        // Write or WriteLine at the first cache with block in writable state
+          unsigned off=pkt->getOffset(blkSize);
+          unsigned nbytes =pkt->getSize();
+           blk->bytes_written_total +=nbytes;
+           unsigned newly=blk->markBytesTouched(off, nbytes);
+            blk->unique_bytes_written+=newly;
+    // Write or WriteLine at the first cache with block in writable state
         if (blk->checkWrite(pkt)) {
+           
+
             pkt->writeDataToBlock(blk->data, blkSize);
         }
         // Always mark the line as dirty (and thus transition to the
@@ -897,6 +939,12 @@ BaseCache::satisfyRequest(PacketPtr pkt, CacheBlk *blk, bool, bool)
 
         // all read responses have a data payload
         assert(pkt->hasRespData());
+          unsigned off=pkt->getOffset(blkSize);
+          unsigned nbytes =pkt->getSize();
+          blk->bytes_read_total +=nbytes;
+          unsigned newly=blk->markBytesTouched(off, nbytes);
+          blk->unique_bytes_read+=newly;
+
         pkt->setDataFromBlock(blk->data, blkSize);
     } else if (pkt->isUpgrade()) {
         // sanity check

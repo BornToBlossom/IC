@@ -417,6 +417,12 @@ class BaseCache : public MemObject
     Addr regenerateBlkAddr(CacheBlk* blk);
 
     /**
+     * Merge per-block history into the global history map. This is
+     * maintained for analysis of read/write/touch patterns.
+     */
+    void mergeBlkHistory(CacheBlk* blk);
+
+    /**
      * Does all the processing necessary to perform the provided request.
      * @param pkt The memory request to perform.
      * @param blk The cache block to be updated.

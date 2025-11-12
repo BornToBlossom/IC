@@ -39,8 +39,99 @@
  */
 
 #include "mem/cache/cache_blk.hh"
-
+#include <algorithm>
+#include <cstdint>  
 #include "base/cprintf.hh"
+
+// --- Implement clearTouchBitmap ---
+void
+CacheBlk::clearTouchBitmap()
+{
+    if (!touch_bitmap.empty()) {
+        std::fill(touch_bitmap.begin(), touch_bitmap.end(), 0ULL);
+    }
+    bytes_read_total = 0;
+    bytes_written_total = 0;
+    unique_bytes_read = 0;
+    unique_bytes_written = 0;
+}
+
+// --- Implement markBytesTouched ---
+// Marks byte range [offset, offset+len) in touch_bitmap.
+// Returns the number of bytes newly marked in this call.
+unsigned
+CacheBlk::markBytesTouched(unsigned offset, unsigned len)
+{
+    if (len == 0 || touch_bitmap.empty())
+        return 0;
+
+    unsigned blkBytes = touch_bitmap.size() * 64;
+    if (offset >= blkBytes)
+        return 0;
+
+    unsigned end = offset + len;
+    if (end > blkBytes)
+        end = blkBytes;
+
+    unsigned wstart = offset >> 6;       // offset / 64
+    unsigned wend = (end - 1) >> 6;      // inclusive
+
+    unsigned newly_set = 0;
+
+    for (unsigned w = wstart; w <= wend; ++w) {
+        unsigned word_base = w << 6; // w * 64
+        unsigned a = std::max<unsigned>(offset, word_base);
+        unsigned b = std::min<unsigned>(end, word_base + 64);
+        unsigned off = a - word_base;
+        unsigned n = b - a; // number of bytes in this word to set
+
+        uint64_t mask;
+        if (n == 0) {
+            continue;
+        } else if (off == 0 && n == 64) {
+            mask = ~0ULL;
+        } else {
+            // safe guard for n >= 64 (shouldn't happen due to above)
+            mask = ((n >= 64) ? ~0ULL : ((1ULL << n) - 1ULL)) << off;
+        }
+
+        uint64_t old = touch_bitmap[w];
+        uint64_t nw = old | mask;
+        uint64_t newly = nw & ~old; // bits that were 0 and are now 1
+        if (newly) {
+            newly_set += __builtin_popcountll(newly);
+            touch_bitmap[w] = nw;
+        }
+    }
+
+    return newly_set;
+}
+
+// --- Implement computeBitmapPopCount ---
+unsigned
+CacheBlk::computeBitmapPopCount() const
+{
+    if (touch_bitmap.empty()) return 0;
+    unsigned total = 0;
+    for (uint64_t w : touch_bitmap)
+        total += __builtin_popcountll(w);
+    return total;
+}
+void
+CacheBlk::initTouchBitmap(unsigned blkSize)
+{
+    // number of 64-bit words needed to cover blkSize bytes
+    unsigned words = (blkSize + 63) / 64;
+    touch_bitmap.assign(words, 0ULL);
+
+    // reset counters
+    bytes_read_total = 0;
+    bytes_written_total = 0;
+    unique_bytes_read = 0;
+    unique_bytes_written = 0;
+}
+
+
 
 void
 CacheBlk::insert(const Addr tag, const bool is_secure,

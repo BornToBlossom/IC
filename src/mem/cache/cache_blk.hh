@@ -54,11 +54,15 @@
 #include <list>
 #include <string>
 
+#include<vector>
+
 #include "base/printable.hh"
 #include "base/types.hh"
 #include "mem/cache/replacement_policies/base.hh"
 #include "mem/packet.hh"
 #include "mem/request.hh"
+
+
 
 /**
  * Cache block status bit assignments
@@ -85,7 +89,17 @@ enum CacheBlkStatusBits : unsigned {
 class CacheBlk : public ReplaceableEntry
 {
   public:
+    
     /** Task Id associated with this block */
+    uint64_t bytes_read_total=0;
+    uint64_t bytes_written_total=0;
+    unsigned unique_bytes_read=0;
+    unsigned unique_bytes_written=0;
+    std::vector<uint64_t> touch_bitmap;
+    void initTouchBitmap(unsigned blkSize);
+    void clearTouchBitmap();
+    unsigned markBytesTouched(unsigned offset,unsigned len);
+    unsigned computeBitmapPopCount() const;
     uint32_t task_id;
 
     /** Data block tag value. */
@@ -116,6 +130,11 @@ class CacheBlk : public ReplaceableEntry
 
     /** Tick on which the block was inserted in the cache. */
     Tick tickInserted;
+
+    
+
+    
+
 
   protected:
     /**
@@ -213,6 +232,12 @@ class CacheBlk : public ReplaceableEntry
         srcMasterId = Request::invldMasterId;
         tickInserted = MaxTick;
         lockList.clear();
+
+        bytes_read_total=0;
+        bytes_written_total=0;
+        unique_bytes_read=0;
+        unique_bytes_written=0;
+        touch_bitmap.clear();
     }
 
     /**
@@ -256,7 +281,7 @@ class CacheBlk : public ReplaceableEntry
      */
     virtual void insert(const Addr tag, const bool is_secure,
                         const int src_master_ID, const uint32_t task_ID);
-
+    
     /**
      * Track the fact that a local locked was issued to the
      * block. Invalidate any previous LL to the same address.

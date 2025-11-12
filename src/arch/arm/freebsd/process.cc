@@ -35,7 +35,11 @@
 #include <sys/mman.h>
 #include <sys/param.h>
 #include <sys/syscall.h>
+#ifdef __FreeBSD__
 #include <sys/sysctl.h>
+#else
+#include <linux/sysctl.h>
+#endif
 #include <sys/types.h>
 #include <utime.h>
 
@@ -93,7 +97,17 @@ sysctlFunc(SyscallDesc *desc, int callnum, Process *process,
     void *holdp = (void *)buf2.bufferPtr();
     size_t *holdlenp = (size_t *)buf3.bufferPtr();
 
+#ifdef __FreeBSD__
     ret = sysctl((int *)hnamep, namelen, holdp, holdlenp, hnewp, newlen);
+#else
+    // sysctl() is not available on non-FreeBSD systems
+    // Return error code ENOSYS (Function not implemented)
+    // Suppress unused variable warnings
+    (void)hnamep; (void)namelen; (void)holdp; (void)holdlenp;
+    (void)hnewp; (void)newlen;
+    ret = -1;
+    errno = ENOSYS;
+#endif
 
     buf.copyOut(tc->getMemProxy());
     buf2.copyOut(tc->getMemProxy());
